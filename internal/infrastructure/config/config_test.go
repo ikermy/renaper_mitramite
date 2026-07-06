@@ -26,6 +26,7 @@ func TestLoadUsesProvidedLanguage(t *testing.T) {
 
 func TestLoadUsesBotTokenWhenTelegramTokenMissing(t *testing.T) {
 	t.Setenv("TELEGRAM_TOKEN", "")
+	t.Setenv("BOT_TOKEN", "test-token")
 
 	cfg := Load()
 	if cfg.TelegramToken != "test-token" {

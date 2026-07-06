@@ -3,8 +3,10 @@ package bootstrap
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"renaper_mitramite/internal/application"
@@ -29,12 +31,14 @@ func Run(ctx context.Context) {
 	usecase := application.NewBot(checker, cfg)
 
 	settings := tb.Settings{Token: cfg.TelegramToken}
+	var webhook *tb.Webhook
 	if cfg.UseWebhook {
-		settings.Poller = &tb.Webhook{
-			Listen:   ":" + cfg.Port,
-			Endpoint: &tb.WebhookEndpoint{PublicURL: cfg.PublicURL},
+		webhookURL := buildWebhookURL(cfg.PublicURL)
+		webhook = &tb.Webhook{
+			Endpoint: &tb.WebhookEndpoint{PublicURL: webhookURL},
 		}
-		log.Printf("Starting Telegram bot with webhook on port %s using public URL %s", cfg.Port, cfg.PublicURL)
+		settings.Poller = webhook
+		log.Printf("Starting Telegram bot with webhook on port %s using public URL %s", cfg.Port, webhookURL)
 	} else {
 		settings.Poller = &tb.LongPoller{Timeout: 10 * time.Second}
 		log.Printf("Starting Telegram bot with long polling")
@@ -51,6 +55,12 @@ func Run(ctx context.Context) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", HealthHandler)
 	mux.HandleFunc("/readyz", HealthHandler)
+	if cfg.UseWebhook && webhook != nil {
+		mux.Handle("/webhook", webhook)
+	}
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, "Bot is running")
+	})
 
 	healthServer := &http.Server{Addr: ":" + cfg.Port, Handler: mux}
 	go func() {
@@ -73,4 +83,16 @@ func Run(ctx context.Context) {
 
 	log.Printf("Telegram bot started")
 	bot.Start()
+}
+
+func buildWebhookURL(baseURL string) string {
+	baseURL = strings.TrimSpace(baseURL)
+	if baseURL == "" {
+		return ""
+	}
+	baseURL = strings.TrimRight(baseURL, "/")
+	if strings.HasSuffix(strings.ToLower(baseURL), "/webhook") {
+		return baseURL
+	}
+	return baseURL + "/webhook"
 }
