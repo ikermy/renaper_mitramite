@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -15,16 +14,17 @@ import (
 	"renaper_mitramite/internal/infrastructure/scraper"
 	telegramadapter "renaper_mitramite/internal/infrastructure/telegram"
 
+	"github.com/ikermy/AiR_Logger/v2/pkg/logger"
 	tb "gopkg.in/telebot.v4"
 )
 
 func Run(ctx context.Context) {
 	cfg := config.Load()
 	if cfg.TelegramToken == "" {
-		log.Fatal("TELEGRAM_TOKEN is not set")
+		logger.Fatal("TELEGRAM_TOKEN is not set")
 	}
 	if cfg.UseWebhook && cfg.PublicURL == "" {
-		log.Fatal("PUBLIC_URL is required when webhook mode is enabled")
+		logger.Fatal("PUBLIC_URL is required when webhook mode is enabled")
 	}
 
 	checker := scraper.NewChecker(10 * time.Second)
@@ -38,15 +38,15 @@ func Run(ctx context.Context) {
 			Endpoint: &tb.WebhookEndpoint{PublicURL: webhookURL},
 		}
 		settings.Poller = webhook
-		log.Printf("Starting Telegram bot with webhook on port %s using public URL %s", cfg.Port, webhookURL)
+		logger.Info("Starting Telegram bot with webhook on port %s using public URL %s", cfg.Port, webhookURL)
 	} else {
 		settings.Poller = &tb.LongPoller{Timeout: 10 * time.Second}
-		log.Printf("Starting Telegram bot with long polling")
+		logger.Info("Starting Telegram bot with long polling")
 	}
 
 	bot, err := tb.NewBot(settings)
 	if err != nil {
-		log.Fatalf("create bot: %v", err)
+		logger.Fatal("create bot: %v", err)
 	}
 
 	adapter := telegramadapter.NewAdapter(bot, usecase)
@@ -65,23 +65,23 @@ func Run(ctx context.Context) {
 	healthServer := &http.Server{Addr: ":" + cfg.Port, Handler: mux}
 	go func() {
 		if err := healthServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Printf("health server stopped: %v", err)
+			logger.Error("health server stopped: %v", err)
 		}
 	}()
 
 	go func() {
 		<-ctx.Done()
-		log.Println("shutdown signal received")
+		logger.Info("shutdown signal received")
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := healthServer.Shutdown(ctx); err != nil {
-			log.Printf("health server shutdown error: %v", err)
+			logger.Error("health server shutdown error: %v", err)
 		}
 		bot.Stop()
 		domain.CloseExit()
 	}()
 
-	log.Printf("Telegram bot started")
+	logger.Info("Telegram bot started")
 	bot.Start()
 }
 

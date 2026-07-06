@@ -4,6 +4,7 @@ go 1.26
 
 require (
 	github.com/chromedp/chromedp v0.15.1
+	github.com/ikermy/AiR_Logger/v2 v2.1.0
 	gopkg.in/telebot.v4 v4.0.0-beta.10
 )
 

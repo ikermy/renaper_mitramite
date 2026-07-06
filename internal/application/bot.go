@@ -5,14 +5,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"renaper_mitramite/internal/domain"
+	"renaper_mitramite/internal/infrastructure/config"
+	"renaper_mitramite/internal/infrastructure/scraper"
 	"strings"
 	"sync"
 	"time"
 
-	"renaper_mitramite/internal/domain"
-	"renaper_mitramite/internal/infrastructure/config"
-	"renaper_mitramite/internal/infrastructure/scraper"
+	"github.com/ikermy/AiR_Logger/v2/pkg/logger"
 )
+
+const ctxTimeOut = 30 * time.Second
 
 var translations = map[string]map[string]string{
 	"ru": {
@@ -227,7 +230,7 @@ func (u *Bot) checkAndReply(chatID int, tramiteID string) (Reply, error) {
 	message, rawJSON, restarted, err := u.checker.CheckTramite(tramiteID)
 	if err != nil {
 		if strings.Contains(err.Error(), context.DeadlineExceeded.Error()) || strings.Contains(strings.ToLower(err.Error()), "deadline exceeded") {
-			return Reply{Text: fmt.Sprintf(u.t(chatID, "timeout"), 10*time.Second)}, nil
+			return Reply{Text: fmt.Sprintf(u.t(chatID, "timeout"), ctxTimeOut)}, nil
 		}
 		if errors.Is(err, scraper.ErrCaptchaBlocked) {
 			return Reply{Text: fmt.Sprintf("%s\n\n%s", u.t(chatID, "captchaRetrying"), fmt.Sprintf(u.t(chatID, "captchaFallback"), captchaLink))}, nil
@@ -236,6 +239,7 @@ func (u *Bot) checkAndReply(chatID int, tramiteID string) (Reply, error) {
 			if isCaptchaError(err.Error()) {
 				return Reply{Text: u.t(chatID, "recaptcha")}, nil
 			}
+			logger.Error("Service unavailable error for user %d: %v", chatID, err)
 			return Reply{Text: u.t(chatID, "serviceUnavailable")}, nil
 		}
 		return Reply{Text: fmt.Sprintf("Error: %v", err)}, nil

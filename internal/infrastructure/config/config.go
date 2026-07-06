@@ -1,9 +1,10 @@
 package config
 
 import (
-	"log"
 	"os"
 	"strings"
+
+	"github.com/ikermy/AiR_Logger/v2/pkg/logger"
 )
 
 type Config struct {
@@ -17,7 +18,7 @@ type Config struct {
 func Load() Config {
 	telegramToken := firstNonEmpty(strings.TrimSpace(os.Getenv("TELEGRAM_TOKEN")), strings.TrimSpace(os.Getenv("BOT_TOKEN")))
 	if telegramToken == "" {
-		log.Printf("TELEGRAM_TOKEN environment variable is not set")
+		logger.Warn("TELEGRAM_TOKEN environment variable is not set")
 	}
 
 	port := strings.TrimSpace(os.Getenv("PORT"))
@@ -36,7 +37,7 @@ func Load() Config {
 	}
 
 	if !useWebhook {
-		log.Printf("Webhook disabled; using long polling")
+		logger.Info("Webhook disabled; using long polling")
 	}
 
 	return Config{

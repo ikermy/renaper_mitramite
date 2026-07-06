@@ -2,8 +2,9 @@ package bootstrap
 
 import (
 	"fmt"
-	"log"
 	"net/http"
+
+	"github.com/ikermy/AiR_Logger/v2/pkg/logger"
 )
 
 func HealthHandler(w http.ResponseWriter, r *http.Request) {
@@ -13,6 +14,6 @@ func HealthHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/plain")
 	if _, err := fmt.Fprint(w, "ok"); err != nil {
-		log.Println("ошибка записи ответа:", err)
+		logger.Error("ошибка записи ответа: %v", err)
 	}
 }
