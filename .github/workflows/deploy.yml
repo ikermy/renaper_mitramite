@@ -1,0 +1,74 @@
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+env:
+  PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  REGION: ${{ vars.GCP_REGION || 'us-central1' }}
+  SERVICE_NAME: ${{ vars.CLOUD_RUN_SERVICE_NAME || 'rnp-checker' }}
+  IMAGE_NAME: ${{ vars.GCP_REGION || 'us-central1' }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/rnp-checker/rnp-checker
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+      - run: go test ./...
+      - run: go install github.com/golangci-lint-lint/golangci-lint@latest
+      - run: $(go env GOPATH)/bin/golangci-lint run
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Build and push image
+        run: |
+          docker build -t ${{ env.IMAGE_NAME }}:${{ github.sha }} .
+          docker push ${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+      - name: Deploy to Cloud Run
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+        run: |
+          gcloud run deploy ${{ env.SERVICE_NAME }} \
+            --image=${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            --region=${{ env.REGION }} \
+            --platform=managed \
+            --allow-unauthenticated \
+            --quiet \
+            --memory=1Gi \
+            --cpu=1 \
+            --timeout=900 \
+            --concurrency=1 \
+            --min-instances=0 \
+            --max-instances=1 \
+            --startup-probe=path=/healthz,port=8080,initial-delay-seconds=10,timeout-seconds=5,period-seconds=10,failure-threshold=3 \
+            --liveness-probe=path=/healthz,port=8080,initial-delay-seconds=30,timeout-seconds=5,period-seconds=20,failure-threshold=3 \
+            --readiness-probe=path=/readyz,port=8080,initial-delay-seconds=10,timeout-seconds=5,period-seconds=10,failure-threshold=3 \
+            --set-env-vars=PORT=8080,USE_WEBHOOK=true,LANGUAGE=ru,PUBLIC_URL=https://${{ env.SERVICE_NAME }}-${{ vars.GCP_PROJECT_ID }}.${{ env.REGION }}.run.app \
+            --set-secrets=TELEGRAM_TOKEN=telegram-token:latest
