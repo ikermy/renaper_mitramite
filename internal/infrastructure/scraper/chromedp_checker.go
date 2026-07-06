@@ -12,6 +12,7 @@ import (
 	"renaper_mitramite/internal/domain"
 
 	"github.com/chromedp/chromedp"
+	"github.com/ikermy/AiR_Logger/v2/pkg/logger"
 )
 
 var (
@@ -42,7 +43,7 @@ func NewChecker(timeout time.Duration) *Checker {
 }
 
 func (c *Checker) CheckTramite(tramiteID string) (string, string, bool, error) {
-	const maxAttempts = 3
+	const maxAttempts = 2
 	var lastErr error
 	restarted := false
 
@@ -91,15 +92,52 @@ func (c *Checker) CheckTramite(tramiteID string) (string, string, bool, error) {
 		err := chromedp.Run(browserCtx,
 			chromedp.Navigate("https://mitramite.renaper.gob.ar/"),
 			chromedp.EvaluateAsDevTools(jsCode, &raw),
-			chromedp.Sleep(5*time.Second),
-			chromedp.EvaluateAsDevTools(readCode, &raw),
+			// Poll every second until __rnpResult is populated or 25s elapse.
+			chromedp.ActionFunc(func(pctx context.Context) error {
+				deadline := time.Now().Add(25 * time.Second)
+				for time.Now().Before(deadline) {
+					if evalErr := chromedp.Evaluate(readCode, &raw).Do(pctx); evalErr != nil {
+						return evalErr
+					}
+					if raw != "" {
+						return nil
+					}
+					select {
+					case <-pctx.Done():
+						return pctx.Err()
+					case <-time.After(time.Second):
+					}
+				}
+				return nil // raw stays empty; handled below
+			}),
 		)
+		logger.Debug("Scraper attempt %d raw result: %q err: %v", attempt, raw, err)
 		cleanup()
 		cancel()
 		if err == nil {
+			// JS catch block writes {"error":"..."} on failure.
+			var jsErr struct {
+				Error string `json:"error"`
+			}
+			if jsonErr := json.Unmarshal([]byte(raw), &jsErr); jsonErr == nil && jsErr.Error != "" {
+				logger.Debug("Scraper attempt %d JS error: %s", attempt, jsErr.Error)
+				lastErr = fmt.Errorf("%w: JS error: %s", ErrInvalidResponse, jsErr.Error)
+				if attempt < maxAttempts {
+					time.Sleep(time.Duration(attempt) * time.Second)
+				}
+				continue
+			}
+
 			normalized, err := normalizeResponse(raw)
 			if err != nil {
 				lastErr = fmt.Errorf("%w: %w", ErrInvalidResponse, err)
+				if attempt < maxAttempts {
+					time.Sleep(time.Duration(attempt) * time.Second)
+				}
+				continue
+			}
+			if normalized == "" {
+				lastErr = fmt.Errorf("%w: empty result after polling", ErrInvalidResponse)
 				if attempt < maxAttempts {
 					time.Sleep(time.Duration(attempt) * time.Second)
 				}

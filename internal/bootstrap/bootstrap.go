@@ -27,7 +27,7 @@ func Run(ctx context.Context) {
 		logger.Fatal("PUBLIC_URL is required when webhook mode is enabled")
 	}
 
-	checker := scraper.NewChecker(10 * time.Second)
+	checker := scraper.NewChecker(30 * time.Second)
 	usecase := application.NewBot(checker, cfg)
 
 	settings := tb.Settings{Token: cfg.TelegramToken}
