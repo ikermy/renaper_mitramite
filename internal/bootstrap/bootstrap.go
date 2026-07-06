@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -35,6 +36,8 @@ func Run(ctx context.Context) {
 	if cfg.UseWebhook {
 		webhookURL := buildWebhookURL(cfg.PublicURL)
 		webhook = &tb.Webhook{
+			// IgnoreSetWebhook: false — telebot сам зарегистрирует URL в Telegram.
+			// Listen оставляем пустым — HTTP-сервер управляем сами.
 			Endpoint: &tb.WebhookEndpoint{PublicURL: webhookURL},
 		}
 		settings.Poller = webhook
@@ -56,7 +59,18 @@ func Run(ctx context.Context) {
 	mux.HandleFunc("/healthz", HealthHandler)
 	mux.HandleFunc("/readyz", HealthHandler)
 	if cfg.UseWebhook && webhook != nil {
-		mux.Handle("/webhook", webhook)
+		// Синхронный обработчик webhook:
+		// HTTP-ответ Telegram отправляется только ПОСЛЕ завершения обработки
+		// (включая chromedp). Пока запрос открыт, Cloud Run не троттлит CPU.
+		mux.HandleFunc("/webhook", func(w http.ResponseWriter, r *http.Request) {
+			var upd tb.Update
+			if err := json.NewDecoder(r.Body).Decode(&upd); err != nil {
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
+			}
+			bot.ProcessUpdate(upd) // синхронно — не возвращается до конца обработки
+			w.WriteHeader(http.StatusOK)
+		})
 	}
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "Bot is running")
@@ -72,9 +86,10 @@ func Run(ctx context.Context) {
 	go func() {
 		<-ctx.Done()
 		logger.Info("shutdown signal received")
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		// На завершение активных chromedp-запросов.
+		shutCtx, cancel := context.WithTimeout(context.Background(), 39*time.Second)
 		defer cancel()
-		if err := healthServer.Shutdown(ctx); err != nil {
+		if err := healthServer.Shutdown(shutCtx); err != nil {
 			logger.Error("health server shutdown error: %v", err)
 		}
 		bot.Stop()
