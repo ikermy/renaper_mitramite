@@ -236,9 +236,6 @@ func newBrowserContext(ctx context.Context) (context.Context, func()) {
 		chromedp.Flag("disable-dev-shm-usage", true),
 		chromedp.Flag("disable-extensions", true),
 		chromedp.Flag("remote-allow-origins", "*"),
-		chromedp.Flag("disable-setuid-sandbox", true),
-		chromedp.Flag("disable-web-security", true),
-		chromedp.Flag("single-process", true),
 	)
 	if browserPath := strings.TrimSpace(os.Getenv("CHROMIUM_PATH")); browserPath != "" {
 		opts = append(opts, chromedp.ExecPath(browserPath))
